@@ -22,7 +22,7 @@ def iniciar_cliente_teste(ip="127.0.0.1", porta=1234):
             payload = data[12:]
             
             try:
-                nparr = np.frombuffer(payload, np.uint8) # Convert Byter -> Numpy Array -> Img OpenCV
+                nparr = np.frombuffer(payload, np.uint8) # Convert Bytes -> Numpy Array -> Img OpenCV
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
                 if frame is not None:
