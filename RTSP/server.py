@@ -3,6 +3,8 @@ import socket
 import time
 import wave
 import threading
+import numpy as np
+from moviepy import AudioFileClip
 from utils import *
 
 def video_stream_worker(video_path, ip_destino):
@@ -34,22 +36,46 @@ def video_stream_worker(video_path, ip_destino):
         else: time.sleep(0.1)
     cap.release()
 
-def audio_stream_worker(audio_path, ip_destino):
+def audio_stream_worker(video_path, ip_destino):
     audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    wf = wave.open(audio_path, 'rb')
-    chunk_size = 1024
-    delay = chunk_size / float(wf.getframerate())
 
+    # carregando a faixa de audio do arquivo de video
+    audio_clip = AudioFileClip(video_path)
+    fps_audio = 44100
+    chunk_size = 1024
+    delay = chunk_size / float(fps_audio)
+
+    # extrai todo o áudio de uma vez
+    audio_array = audio_clip.to_soundarray(fps=fps_audio)
+    audio_clip.close()
+
+    # Passa o array de floats para int16 (formato esperado pelo cliente pyaudio)
+    pcm16_audio = np.int16(audio_array * 32767)
+    total_frames = len(pcm16_audio)
+    
+    idx = 0
+    
     while True:
         if ServerState.state == ServerState.PLAYING:
-            data = wf.readframes(chunk_size)
-            if not data: break
-            payload = fernet.encrypt(data)
+            if idx >= total_frames:
+                break # fim do áudio
+                
+            # recorta o chunk atual manualmente
+            fim = min(idx + chunk_size, total_frames)
+            data_chunk = pcm16_audio[idx:fim]
+            
+            payload = fernet.encrypt(data_chunk.tobytes())
+            
             audio_socket.sendto(payload, (ip_destino, PORTA_RTP_AUDIO))
+            
+            idx += chunk_size
             time.sleep(delay)
-        elif ServerState.state == ServerState.INIT: break
-        else: time.sleep(0.1)
-    wf.close()
+            
+        elif ServerState.state == ServerState.INIT: 
+            break
+        else: 
+            # Pausado
+            time.sleep(0.1)
 
 def handle_rtsp(conn, addr):
     print(f"Conexão RTSP de {addr}")
@@ -61,8 +87,12 @@ def handle_rtsp(conn, addr):
         if request == "SETUP":
             ServerState.state = ServerState.READY
             conn.send(b"RTSP/1.0 200 OK\nSession: 123456")
-            threading.Thread(target=video_stream_worker, args=("videoplayback.mp4", addr[0])).start()
-            threading.Thread(target=audio_stream_worker, args=("audio.wav", addr[0])).start()
+
+            arquivo = "hobi67.mp4"
+
+            threading.Thread(target=video_stream_worker, args=(arquivo, addr[0])).start()
+            threading.Thread(target=audio_stream_worker, args=(arquivo, addr[0])).start()
+
         elif request in ["PLAY", "PAUSE", "TEARDOWN"]:
             if request == "PLAY": ServerState.state = ServerState.PLAYING
             elif request == "PAUSE": ServerState.state = ServerState.READY
