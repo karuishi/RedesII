@@ -7,14 +7,18 @@ import numpy as np
 from moviepy import AudioFileClip
 from utils import *
 
-def video_stream_worker(video_path, ip_destino):
+class ClientSession:
+    def __init__(self):
+        self.state = ServerState.INIT
+
+def video_stream_worker(video_path, ip_destino, porta_destino, session):
     video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     cap = cv2.VideoCapture(video_path)
     seq_num = 0
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
     
     while cap.isOpened():
-        if ServerState.state == ServerState.PLAYING:
+        if session.state == ServerState.PLAYING:
             start_time = time.time()
             
             ret, frame = cap.read()
@@ -26,17 +30,18 @@ def video_stream_worker(video_path, ip_destino):
             payload = fernet.encrypt(buffer.tobytes())
             timestamp = int(time.time() * 90000) & 0xFFFFFFFF
             pacote = RTPPacket(26, seq_num, timestamp, payload)
-            video_socket.sendto(pacote.get_packet(), (ip_destino, PORTA_RTP_VIDEO))
-            
+
+            video_socket.sendto(pacote.get_packet(), (ip_destino, porta_destino))  
+
             seq_num = (seq_num + 1) % 65536
             elapsed_time = time.time() - start_time
             sleep_time = max(0, (1.0 / fps) - elapsed_time)
             time.sleep(sleep_time)
-        elif ServerState.state == ServerState.INIT: break
+        elif session.state == ServerState.INIT: break
         else: time.sleep(0.1)
     cap.release()
 
-def audio_stream_worker(video_path, ip_destino):
+def audio_stream_worker(video_path, ip_destino, porta_destino, session):
     audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # carregando a faixa de audio do arquivo de video
@@ -56,7 +61,7 @@ def audio_stream_worker(video_path, ip_destino):
     idx = 0
     
     while True:
-        if ServerState.state == ServerState.PLAYING:
+        if session.state == ServerState.PLAYING:
             if idx >= total_frames:
                 break # fim do áudio
                 
@@ -66,12 +71,12 @@ def audio_stream_worker(video_path, ip_destino):
             
             payload = fernet.encrypt(data_chunk.tobytes())
             
-            audio_socket.sendto(payload, (ip_destino, PORTA_RTP_AUDIO))
+            audio_socket.sendto(payload, (ip_destino, porta_destino))
             
             idx += chunk_size
             time.sleep(delay)
             
-        elif ServerState.state == ServerState.INIT: 
+        elif session.state == ServerState.INIT: 
             break
         else: 
             # Pausado
@@ -79,26 +84,39 @@ def audio_stream_worker(video_path, ip_destino):
 
 def handle_rtsp(conn, addr):
     print(f"Conexão RTSP de {addr}")
+    session = ClientSession()
+
     while True:
         data = conn.recv(1024).decode()
         if not data: break
-        request = data.split(' ')[0]
+
+        parts = data.split(' ')
+        request = parts[0]
 
         if request == "SETUP":
-            ServerState.state = ServerState.READY
-            conn.send(b"RTSP/1.0 200 OK\nSession: 123456")
+            session.state = ServerState.READY
+            
+            porta_v = int(parts[1]) if len(parts) > 1 else PORTA_RTP_VIDEO
+            porta_a = int(parts[2]) if len(parts) > 2 else PORTA_RTP_AUDIO
 
+            conn.send(b"RTSP/1.0 200 OK\nSession: 123456")
+            
             arquivo = "hobi67.mp4"
 
-            threading.Thread(target=video_stream_worker, args=(arquivo, addr[0])).start()
-            threading.Thread(target=audio_stream_worker, args=(arquivo, addr[0])).start()
+            threading.Thread(target=video_stream_worker, args=(arquivo, addr[0], porta_v, session)).start()
+            threading.Thread(target=audio_stream_worker, args=(arquivo, addr[0], porta_a, session)).start()
+            
+            print(f"[{addr}] Setup concluído para portas {porta_v} e {porta_a}")
 
         elif request in ["PLAY", "PAUSE", "TEARDOWN"]:
-            if request == "PLAY": ServerState.state = ServerState.PLAYING
-            elif request == "PAUSE": ServerState.state = ServerState.READY
-            elif request == "TEARDOWN": ServerState.state = ServerState.INIT
+            if request == "PLAY": session.state = ServerState.PLAYING
+            elif request == "PAUSE": session.state = ServerState.READY
+            elif request == "TEARDOWN": session.state = ServerState.INIT
             conn.send(b"RTSP/1.0 200 OK")
             if request == "TEARDOWN": break
+
+    print(f"Conexão encerrada com {addr}")
+    conn.close()
 
 if __name__ == "__main__":
     rtsp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
