@@ -16,7 +16,7 @@ class RTSPClient:
         
         # Setup Áudio
         self.p = pyaudio.PyAudio()
-        self.audio_stream = self.p.open(format=pyaudio.paInt16, channels=2, rate=44100, output=True)
+        self.audio_stream = self.p.open(format=pyaudio.paInt16, channels=2, rate=44100, output=True, frames_per_buffer=4096)
         
         self.setup_gui()
 
