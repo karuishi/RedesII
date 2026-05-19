@@ -62,8 +62,11 @@ class RTSPClient:
         audio_socket.bind(('0.0.0.0', self.porta_audio))
         while not self.stop_rtp:
             try:
-                data, _ = audio_socket.recvfrom(8192)
-                self.audio_stream.write(fernet.decrypt(data))
+                data, _ = audio_socket.recvfrom(65535)
+
+                payload = fernet.decrypt(data[12:])
+
+                self.audio_stream.write(payload)
             except: continue
 
     def send_play(self): self.rtsp_socket.send(b"PLAY")
