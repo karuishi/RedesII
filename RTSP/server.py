@@ -59,6 +59,7 @@ def audio_stream_worker(video_path, ip_destino, porta_destino, session):
     total_frames = len(pcm16_audio)
     
     idx = 0
+    seq_num = 0 #inicalização do numero de sequencia
     
     while True:
         if session.state == ServerState.PLAYING:
@@ -71,8 +72,13 @@ def audio_stream_worker(video_path, ip_destino, porta_destino, session):
             
             payload = fernet.encrypt(data_chunk.tobytes())
             
-            audio_socket.sendto(payload, (ip_destino, porta_destino))
+            #criando o cabeçalho RTP para o audio
+            timestamp = int(time.time() * 44100) & 0xFFFFFFFF
+            pacote = RTPPacket(97, seq_num, timestamp, payload)
+
+            audio_socket.sendto(pacote.get_packet(), (ip_destino, porta_destino))
             
+            seq_num = (seq_num + 1) % 65536
             idx += chunk_size
             time.sleep(delay)
             
