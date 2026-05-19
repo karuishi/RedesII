@@ -45,11 +45,11 @@ class RTSPClient:
         threading.Thread(target=self.receive_audio, daemon=True).start()
 
     def receive_video(self):
-        video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        video_socket.bind(('0.0.0.0', self.porta_video))
+        self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.video_socket.bind(('0.0.0.0', self.porta_video))
         while not self.stop_rtp:
             try:
-                data, _ = video_socket.recvfrom(65535)
+                data, _ = self.video_socket.recvfrom(65535)
                 payload = fernet.decrypt(data[12:])
                 frame = cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
                 if frame is not None:
@@ -58,11 +58,11 @@ class RTSPClient:
             except: continue
 
     def receive_audio(self):
-        audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        audio_socket.bind(('0.0.0.0', self.porta_audio))
+        self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.audio_socket.bind(('0.0.0.0', self.porta_audio))
         while not self.stop_rtp:
             try:
-                data, _ = audio_socket.recvfrom(65535)
+                data, _ = self.audio_socket.recvfrom(65535)
 
                 payload = fernet.decrypt(data[12:])
 
@@ -74,6 +74,15 @@ class RTSPClient:
     def send_teardown(self):
         self.rtsp_socket.send(b"TEARDOWN")
         self.stop_rtp = True
+
+        # Verifica se os sockets foram criados antes de tentar fechá-los
+        if hasattr(self, 'video_socket'):
+            self.video_socket.close()
+        if hasattr(self, 'audio_socket'):
+            self.audio_socket.close()
+
+        self.audio_stream.stop_stream()
+        self.audio_stream.close()
         self.master.destroy()
 
 if __name__ == "__main__":
