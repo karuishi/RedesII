@@ -58,17 +58,22 @@ class RTSPClient:
             except: continue
 
     def receive_audio(self):
+        # cria socket UDP (SOCK_DGRAM) usando o protocolo IPv4 (AF_INET)
         self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.audio_socket.bind(('0.0.0.0', self.porta_audio))
+        #vincula o socket as interfaces de rede locais ('0.0.0.0') na porta definida para o áudio
+        self.audio_socket.bind(('0.0.0.0', self.porta_audio))  
+        #enquanto o cliente não solicitar o teardown, ele fica escutando por pacotes RTP de áudio
         while not self.stop_rtp:
             try:
-                data, _ = self.audio_socket.recvfrom(65535)
-
+                #pacotes de dados de até 8192 bytes
+                data, _ = self.audio_socket.recvfrom(65535) #  O '_' ignora o endereço de origem
+                #descriptografa o payload do pacote RTP
                 payload = fernet.decrypt(data[12:])
-
+                
                 self.audio_stream.write(payload)
-            except: continue
+            except: continue  # Ignora erros de recepção ou descriptografia
 
+    # envia comandos RTSP para o servidor
     def send_play(self): self.rtsp_socket.send(b"PLAY")
     def send_pause(self): self.rtsp_socket.send(b"PAUSE")
     def send_teardown(self):
