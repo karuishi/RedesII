@@ -21,5 +21,4 @@ Thumbs.db
 *.swo
 
 # Local media files (arquivos de teste grandes)
-*.mp4
 *.wav
