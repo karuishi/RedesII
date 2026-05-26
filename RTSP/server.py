@@ -106,38 +106,73 @@ def audio_stream_worker(video_path, ip_destino, porta_destino, session):
             time.sleep(0.1)
 
 def handle_rtsp(conn, addr):
+    # Registra no console do servidor o IP e porta (addr) do cliente que acabou de conectar.
     print(f"Conexão RTSP de {addr}")
+    
+    # Cria uma nova instância de sessão para este cliente específico.
+    # Isso inicializa uma máquina de estados (geralmente começando no estado INIT).
     session = ClientSession()
 
+    # Inicia um loop infinito para manter a conexão TCP aberta, aguardando os comandos do cliente.
     while True:
+        # Recebe até 1024 bytes de dados do socket do cliente e decodifica de bytes para string.
         data = conn.recv(1024).decode()
+        
+        # Se os dados estiverem vazios (o cliente fechou a conexão abruptamente), quebra o loop.
         if not data: break
 
+        # Divide a mensagem recebida usando os espaços como separador. 
+        # Ex: "SETUP 5000 5002" vira ["SETUP", "5000", "5002"]
         parts = data.split(' ')
-        request = parts[0]
+        request = parts[0] # O comando principal é a primeira palavra (índice 0).
 
+        # Verifica se o comando é de configuração inicial
         if request == "SETUP":
+            # Altera o estado da sessão para READY (pronto para transmitir).
             session.state = ServerState.READY
             
+            # Extrai as portas UDP que o cliente quer usar para receber o vídeo e o áudio.
+            # Se o cliente não informar as portas, utiliza portas padrão predefinidas no servidor.
             porta_v = int(parts[1]) if len(parts) > 1 else PORTA_RTP_VIDEO
             porta_a = int(parts[2]) if len(parts) > 2 else PORTA_RTP_AUDIO
 
+            # Envia a resposta de sucesso padrão do protocolo RTSP de volta para o cliente.
             conn.send(b"RTSP/1.0 200 OK\nSession: 123456")
             
+            # Define o nome do arquivo de mídia que será transmitido ao cliente.
             arquivo = "bill_nav.mp4"
 
+            # INICIALIZAÇÃO DAS THREADS DE STREAMING (RTP via UDP):
+            # Cria e inicia uma thread paralela responsável apenas por ler e enviar os quadros de vídeo.
             threading.Thread(target=video_stream_worker, args=(arquivo, addr[0], porta_v, session)).start()
+            # Cria e inicia uma thread paralela responsável apenas por ler e enviar os blocos de áudio.
             threading.Thread(target=audio_stream_worker, args=(arquivo, addr[0], porta_a, session)).start()
             
+            # Registra no console que a configuração deste cliente foi finalizada.
             print(f"[{addr}] Setup concluído para portas {porta_v} e {porta_a}")
 
+        # Se o comando for de manipulação de fluxo contínuo
         elif request in ["PLAY", "PAUSE", "TEARDOWN"]:
+            
+            # Se for PLAY, muda o estado para PLAYING. 
+            # Isso "destrava" as threads iniciadas no SETUP, fazendo com que elas comecem a enviar os pacotes RTP de mídia.
             if request == "PLAY": session.state = ServerState.PLAYING
+            
+            # Se for PAUSE, retrocede o estado para READY.
+            # As threads ainda estarão ativas na memória, mas pararão de enviar pacotes UDP, pausando a mídia.
             elif request == "PAUSE": session.state = ServerState.READY
+            
+            # Se for TEARDOWN, altera o estado para INIT (sinalizando às threads que elas devem encerrar sua execução).
             elif request == "TEARDOWN": session.state = ServerState.INIT
+            
+            # Confirma o recebimento e o sucesso do comando para o cliente.
             conn.send(b"RTSP/1.0 200 OK")
+            
+            # Se o cliente solicitou o encerramento da sessão, quebra o loop while True.
             if request == "TEARDOWN": break
 
+    # Após o loop ser quebrado (seja pelo TEARDOWN ou por perda de conexão), 
+    # imprime um log de encerramento e fecha permanentemente o socket TCP desse cliente.
     print(f"Conexão encerrada com {addr}")
     conn.close()
 
