@@ -24,7 +24,7 @@ def video_stream_worker(video_path, ip_destino, porta_destino, session):
             ret, frame = cap.read()
             if not ret: break
             
-            frame = cv2.resize(frame, (640, 480))
+            frame = cv2.resize(frame, (360, 640))
             _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
             
             payload = fernet.encrypt(buffer.tobytes())
